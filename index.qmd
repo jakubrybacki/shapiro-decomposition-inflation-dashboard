@@ -1,0 +1,950 @@
+---
+title: "European Inflation Decomposition"
+subtitle: "Supply and Demand Shock Contributions via Shapiro (2022) Methodology"
+format:
+  dashboard:
+    orientation: rows
+    theme: cosmo
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+suppressPackageStartupMessages({
+  library(plotly)
+  library(dplyr)
+  library(tidyr)
+  library(openxlsx)
+  library(jsonlite)
+  library(htmltools)
+})
+
+# 1. Load data directly from Google BigQuery (with local fallback)
+project_id <- "macroeconomic-dashboards"
+dataset_id <- "shapiro_inflation_decomposition"
+
+bq_loaded <- FALSE
+
+if (requireNamespace("bigrquery", quietly = TRUE)) {
+  bq_res <- tryCatch({
+    token <- gargle::credentials_app_default(scopes = "https://www.googleapis.com/auth/cloud-platform")
+    bigrquery::bq_auth(token = token)
+    
+    sql_shocks <- sprintf("SELECT country, date, horizon, shock_type, contribution_pp, headline_inflation, basket_weight_permille FROM `%s.%s.hicp_shock_contributions`", project_id, dataset_id)
+    df_shocks_raw <- bigrquery::bq_table_download(bigrquery::bq_project_query(project_id, sql_shocks))
+    
+    sql_supply <- sprintf("SELECT country, date, horizon, driver, contribution_pp, total_supply_shock_pp, headline_inflation FROM `%s.%s.hicp_supply_drivers`", project_id, dataset_id)
+    df_supply_raw <- bigrquery::bq_table_download(bigrquery::bq_project_query(project_id, sql_supply))
+    
+    sql_demand <- sprintf("SELECT country, date, horizon, pillar, contribution_pp, total_demand_shock_pp, headline_inflation FROM `%s.%s.hicp_demand_drivers`", project_id, dataset_id)
+    df_demand_raw <- bigrquery::bq_table_download(bigrquery::bq_project_query(project_id, sql_demand))
+
+    # Reshape df_c (main shock contributions)
+    shocks_12m <- df_shocks_raw |>
+      filter(horizon == "12M_YOY") |>
+      select(country, date, shock_type, contribution_pp, hicp_yoy = headline_inflation, basket_weight_permille) |>
+      pivot_wider(names_from = shock_type, values_from = contribution_pp) |>
+      rename(
+        c12_supply_hicp = Supply,
+        c12_demand_hicp = Demand,
+        c12_ambig_diff  = Ambiguous
+      )
+
+    shocks_mom <- df_shocks_raw |>
+      filter(horizon == "MOM") |>
+      select(country, date, shock_type, contribution_pp, hicp_mom = headline_inflation) |>
+      pivot_wider(names_from = shock_type, values_from = contribution_pp) |>
+      rename(
+        contr_supply_hicp = Supply,
+        contr_demand_hicp = Demand,
+        contr_ambig_diff  = Ambiguous
+      )
+
+    df_c_bq <- full_join(shocks_12m, shocks_mom, by = c("country", "date")) |>
+      mutate(date = as.character(date))
+
+    # Reshape supply drivers
+    df_s_12m_bq <- df_supply_raw |>
+      filter(horizon == "12M_YOY") |>
+      select(country, date, driver, contribution_pp, c12_total_supply_norm = total_supply_shock_pp, hicp_yoy = headline_inflation) |>
+      pivot_wider(names_from = driver, values_from = contribution_pp) |>
+      rename(
+        c12_energy_norm = `Household Energy`,
+        c12_fuels_norm  = `Transport Fuels`,
+        c12_food_norm   = `Food`,
+        c12_other_norm  = `Other Supply`
+      ) |>
+      mutate(date = as.character(date))
+
+    df_s_m_bq <- df_supply_raw |>
+      filter(horizon == "MOM") |>
+      select(country, date, driver, contribution_pp, contr_total_supply_norm = total_supply_shock_pp) |>
+      pivot_wider(names_from = driver, values_from = contribution_pp) |>
+      rename(
+        contr_energy_norm = `Household Energy`,
+        contr_fuels_norm  = `Transport Fuels`,
+        contr_food_norm   = `Food`,
+        contr_other_norm  = `Other Supply`
+      ) |>
+      mutate(date = as.character(date))
+
+    # Reshape demand drivers
+    df_d_12m_bq <- df_demand_raw |>
+      filter(horizon == "12M_YOY") |>
+      select(country, date, pillar, contribution_pp, c12_total_demand_norm = total_demand_shock_pp, hicp_yoy = headline_inflation) |>
+      pivot_wider(names_from = pillar, values_from = contribution_pp) |>
+      rename(
+        c12_services_norm = `Services`,
+        c12_goods_norm    = `Industrial Goods`,
+        c12_food_norm     = `Food & Beverages`,
+        c12_energy_norm   = `Energy & Fuels`
+      ) |>
+      mutate(date = as.character(date))
+
+    df_d_m_bq <- df_demand_raw |>
+      filter(horizon == "MOM") |>
+      select(country, date, pillar, contribution_pp, contr_total_demand_norm = total_demand_shock_pp) |>
+      pivot_wider(names_from = pillar, values_from = contribution_pp) |>
+      rename(
+        contr_services_norm = `Services`,
+        contr_goods_norm    = `Industrial Goods`,
+        contr_food_norm     = `Food & Beverages`,
+        contr_energy_norm   = `Energy & Fuels`
+      ) |>
+      mutate(date = as.character(date))
+      
+    list(df_c = df_c_bq, df_s_12m = df_s_12m_bq, df_s_m = df_s_m_bq, df_d_12m = df_d_12m_bq, df_d_m = df_d_m_bq)
+  }, error = function(e) {
+    message("BigQuery load warning: ", e$message)
+    NULL
+  })
+  
+  if (!is.null(bq_res)) {
+    df_c     <- bq_res$df_c
+    df_s_12m <- bq_res$df_s_12m
+    df_s_m   <- bq_res$df_s_m
+    df_d_12m <- bq_res$df_d_12m
+    df_d_m   <- bq_res$df_d_m
+    bq_loaded <- TRUE
+  }
+}
+
+if (!bq_loaded) {
+  find_path <- function(rel_file) {
+    if (file.exists(rel_file)) return(rel_file)
+    parent_file <- file.path("..", rel_file)
+    if (file.exists(parent_file)) return(parent_file)
+    stop("Data file not found: ", rel_file)
+  }
+
+  data_c_path <- find_path("model_shock_contrubutions/all_countries_contributions.xlsx")
+  data_s_path <- find_path("model_shock_contrubutions/all_countries_supply_drivers.xlsx")
+  data_d_path <- find_path("model_shock_contrubutions/all_countries_demand_drivers.xlsx")
+  hicp_path   <- find_path("model_shock_contrubutions/headline_hicp_all_countries.rds")
+
+  hicp_all <- readRDS(hicp_path)
+
+  df_c     <- openxlsx::read.xlsx(data_c_path, sheet = "All_Countries_Time_Series") |> mutate(across(where(is.numeric), ~ round(., 3)))
+  df_s_12m <- openxlsx::read.xlsx(data_s_path, sheet = "All_Countries_12M")         |> mutate(across(where(is.numeric), ~ round(., 3)))
+  df_s_m   <- openxlsx::read.xlsx(data_s_path, sheet = "All_Countries_Monthly")     |> mutate(across(where(is.numeric), ~ round(., 3)))
+  df_d_12m <- openxlsx::read.xlsx(data_d_path, sheet = "All_Countries_12M")         |> mutate(across(where(is.numeric), ~ round(., 3)))
+  df_d_m   <- openxlsx::read.xlsx(data_d_path, sheet = "All_Countries_Monthly")     |> mutate(across(where(is.numeric), ~ round(., 3)))
+
+  MIN_CATEGORIES <- 50
+  df_c     <- df_c     |> filter(n_categories >= MIN_CATEGORIES)
+  df_s_12m <- df_s_12m |> filter(n_categories >= MIN_CATEGORIES)
+  df_s_m   <- df_s_m   |> filter(n_categories >= MIN_CATEGORIES)
+  df_d_12m <- df_d_12m |> filter(n_categories >= MIN_CATEGORIES)
+  df_d_m   <- df_d_m   |> filter(n_categories >= MIN_CATEGORIES)
+
+  df_c <- df_c |>
+    select(-any_of(c("hicp_yoy", "hicp_mom", "c12_ambig_diff", "contr_ambig_diff"))) |>
+    left_join(hicp_all, by = c("country", "date")) |>
+    mutate(
+      c12_ambig_diff   = round(hicp_yoy - (c12_supply_hicp + c12_demand_hicp), 3),
+      contr_ambig_diff = round(hicp_mom - (contr_supply_hicp + contr_demand_hicp), 3)
+    )
+
+  df_s_12m <- df_s_12m |> select(-any_of(c("hicp_yoy", "hicp_mom"))) |> left_join(hicp_all |> select(country, date, hicp_yoy), by = c("country", "date"))
+  df_d_12m <- df_d_12m |> select(-any_of(c("hicp_yoy", "hicp_mom"))) |> left_join(hicp_all |> select(country, date, hicp_yoy), by = c("country", "date"))
+}
+
+# Enforce 1 decimal place rounding across all datasets while strictly preserving identity
+df_c <- df_c |>
+  mutate(
+    hicp_yoy          = round(as.numeric(hicp_yoy), 1),
+    hicp_mom          = round(as.numeric(hicp_mom), 1),
+    c12_supply_hicp   = round(as.numeric(c12_supply_hicp), 1),
+    c12_demand_hicp   = round(as.numeric(c12_demand_hicp), 1),
+    c12_ambig_diff    = round(hicp_yoy - (c12_supply_hicp + c12_demand_hicp), 1),
+    contr_supply_hicp = round(as.numeric(contr_supply_hicp), 1),
+    contr_demand_hicp = round(as.numeric(contr_demand_hicp), 1),
+    contr_ambig_diff  = round(hicp_mom - (contr_supply_hicp + contr_demand_hicp), 1),
+    basket_weight_permille = round(as.numeric(basket_weight_permille), 1)
+  )
+
+df_s_12m <- df_s_12m |> mutate(across(where(is.numeric), ~ round(., 1)))
+df_s_m   <- df_s_m   |> mutate(across(where(is.numeric), ~ round(., 1)))
+df_d_12m <- df_d_12m |> mutate(across(where(is.numeric), ~ round(., 1)))
+df_d_m   <- df_d_m   |> mutate(across(where(is.numeric), ~ round(., 1)))
+
+# 2. Country Names Dictionary (Professional English)
+country_names <- c(
+  "PL"        = "Poland (PL)",
+  "EA20"      = "Euro Area 20 (EA20)",
+  "EA19"      = "Euro Area 19 (EA19)",
+  "EU27_2020" = "European Union 27 (EU-27)",
+  "DE"        = "Germany (DE)",
+  "FR"        = "France (FR)",
+  "IT"        = "Italy (IT)",
+  "ES"        = "Spain (ES)",
+  "CZ"        = "Czechia (CZ)",
+  "AT"        = "Austria (AT)",
+  "BE"        = "Belgium (BE)",
+  "BG"        = "Bulgaria (BG)",
+  "CH"        = "Switzerland (CH)",
+  "CY"        = "Cyprus (CY)",
+  "DK"        = "Denmark (DK)",
+  "EE"        = "Estonia (EE)",
+  "EL"        = "Greece (EL)",
+  "FI"        = "Finland (FI)",
+  "HR"        = "Croatia (HR)",
+  "HU"        = "Hungary (HU)",
+  "IE"        = "Ireland (IE)",
+  "LT"        = "Lithuania (LT)",
+  "LU"        = "Luxembourg (LU)",
+  "LV"        = "Latvia (LV)",
+  "MT"        = "Malta (MT)",
+  "NL"        = "Netherlands (NL)",
+  "NO"        = "Norway (NO)",
+  "PT"        = "Portugal (PT)",
+  "RO"        = "Romania (RO)",
+  "SE"        = "Sweden (SE)",
+  "SI"        = "Slovenia (SI)",
+  "SK"        = "Slovakia (SK)",
+  "AL"        = "Albania (AL)",
+  "ME"        = "Montenegro (ME)",
+  "RS"        = "Serbia (RS)",
+  "TR"        = "Türkiye (TR)"
+)
+
+all_codes <- unique(as.character(df_c[["country"]]))
+ordered_countries <- c(
+  intersect(names(country_names), all_codes),
+  setdiff(all_codes, names(country_names))
+)
+
+default_country <- "PL"
+
+# 3. Compute KPI summary for all countries
+kpi_data <- list()
+for (cc in ordered_countries) {
+  sub_c <- df_c[df_c[["country"]] == cc & !is.na(df_c[["c12_supply_hicp"]]) & !is.na(df_c[["hicp_yoy"]]), ]
+  sub_c <- sub_c[order(sub_c[["date"]]), ]
+  c_name <- ifelse(cc %in% names(country_names), country_names[[cc]], cc)
+  
+  if (nrow(sub_c) > 0) {
+    last_r <- tail(sub_c, 1)
+    raw_date <- as.character(last_r[["date"]])
+    date_formatted <- tryCatch(format(as.Date(raw_date), "%b %Y"), error = function(e) raw_date)
+    
+    kpi_data[[cc]] <- list(
+      name   = c_name,
+      date   = date_formatted,
+      inf    = sprintf("%.1f", round(as.numeric(last_r[["hicp_yoy"]]), 1)),
+      sup    = sprintf("%.1f", round(as.numeric(last_r[["c12_supply_hicp"]]), 1)),
+      dem    = sprintf("%.1f", round(as.numeric(last_r[["c12_demand_hicp"]]), 1)),
+      amb    = sprintf("%.1f", round(as.numeric(last_r[["c12_ambig_diff"]]), 1)),
+      weight = sprintf("%.1f", round(as.numeric(last_r[["basket_weight_permille"]]) / 10, 1))
+    )
+  } else {
+    kpi_data[[cc]] <- list(
+      name   = c_name,
+      date   = "—",
+      inf    = "0.0", sup = "0.0", dem = "0.0", amb = "0.0", weight = "0.0"
+    )
+  }
+}
+kpis_json <- jsonlite::toJSON(kpi_data, auto_unbox = TRUE)
+
+# 4. Looker Studio Color Palette
+col_supply    <- "#d6498b" # Looker Studio Pink / Magenta
+col_demand    <- "#41b6c4" # Looker Studio Teal / Seledyn
+col_ambiguous <- "#fec44f" # Looker Studio Warm Amber / Yellow
+col_orange    <- "#fe9929" # Looker Studio Orange
+col_line      <- "#111111" # Looker Studio Line
+
+# Supply driver palette
+col_sup_energy <- "#d6498b"
+col_sup_fuels  <- "#9c1752"
+col_sup_food   <- "#fe9929"
+col_sup_other  <- "#a0aec0"
+
+# Demand driver palette
+col_dem_services <- "#41b6c4"
+col_dem_goods    <- "#2b6cb0"
+col_dem_food     <- "#fe9929"
+col_dem_energy   <- "#805ad5"
+
+axis_layout <- list(
+  type = "date",
+  tickmode = "linear",
+  tick0 = "2000-01-01",
+  dtick = "M12",
+  tickformat = "%Y",
+  hoverformat = "%b %Y",
+  tickangle = 0,
+  showgrid = FALSE,
+  tickfont = list(size = 11, color = "#222222")
+)
+
+yaxis_layout <- list(
+  title = list(text = "pp", font = list(size = 12, color = "#222222")),
+  tickformat = ".1f",
+  hoverformat = ".1f",
+  gridcolor = "#f0f0f0",
+  zeroline = TRUE,
+  zerolinecolor = "#cccccc",
+  zerolinewidth = 1,
+  tickfont = list(size = 11, color = "#222222")
+)
+
+margin_layout <- list(l = 45, r = 20, t = 10, b = 35, autoexpand = FALSE)
+
+# CHART 1: Annual Headline Decomposition (12M YoY)
+p_main_12m <- plot_ly()
+for (cc in ordered_countries) {
+  sub <- df_c[df_c[["country"]] == cc & !is.na(df_c[["c12_supply_hicp"]]) & !is.na(df_c[["hicp_yoy"]]), ]
+  sub <- sub[order(sub[["date"]]), ]
+  vis <- (cc == default_country)
+  if (nrow(sub) > 0) {
+    p_main_12m <- p_main_12m |>
+      add_bars(x = sub[["date"]], y = sub[["c12_supply_hicp"]], name = "Supply Shocks",
+               marker = list(color = col_supply), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_demand_hicp"]], name = "Demand Shocks",
+               marker = list(color = col_demand), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_ambig_diff"]], name = "Ambiguous Shocks",
+               marker = list(color = col_ambiguous), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = sub[["hicp_yoy"]], name = "Actual Headline HICP (12M)",
+                line = list(color = col_line, width = 2.5), legendgroup = cc, visible = vis, showlegend = FALSE)
+  }
+}
+p_main_12m <- p_main_12m |>
+  layout(barmode = "relative", hovermode = "x unified",
+         xaxis = axis_layout, yaxis = yaxis_layout, margin = margin_layout, showlegend = FALSE) |>
+  config(responsive = TRUE, displayModeBar = FALSE)
+
+# CHART 2: Monthly Shock Contributions (MoM)
+p_main_m <- plot_ly()
+for (cc in ordered_countries) {
+  sub <- df_c[df_c[["country"]] == cc & !is.na(df_c[["contr_supply_hicp"]]) & !is.na(df_c[["hicp_mom"]]), ]
+  sub <- sub[order(sub[["date"]]), ]
+  vis <- (cc == default_country)
+  if (nrow(sub) > 0) {
+    p_main_m <- p_main_m |>
+      add_bars(x = sub[["date"]], y = sub[["contr_supply_hicp"]], name = "Supply (MoM)",
+               marker = list(color = col_supply), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_demand_hicp"]], name = "Demand (MoM)",
+               marker = list(color = col_demand), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_ambig_diff"]], name = "Ambiguous (MoM)",
+               marker = list(color = col_ambiguous), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = sub[["hicp_mom"]], name = "Actual Headline HICP (MoM)",
+                line = list(color = col_line, width = 2), legendgroup = cc, visible = vis, showlegend = FALSE)
+  }
+}
+p_main_m <- p_main_m |>
+  layout(barmode = "relative", hovermode = "x unified",
+         xaxis = axis_layout, yaxis = yaxis_layout, margin = margin_layout, showlegend = FALSE) |>
+  config(responsive = TRUE, displayModeBar = FALSE)
+
+# CHART 3: Supply Drivers (12M YoY)
+p_sup_12m <- plot_ly()
+for (cc in ordered_countries) {
+  sub <- df_s_12m[df_s_12m[["country"]] == cc, ]
+  sub <- sub[order(sub[["date"]]), ]
+  vis <- (cc == default_country)
+  if (nrow(sub) > 0) {
+    line_y <- if ("hicp_yoy" %in% colnames(sub)) ifelse(!is.na(sub[["hicp_yoy"]]), sub[["hicp_yoy"]], sub[["c12_total_inf_norm"]]) else sub[["c12_total_inf_norm"]]
+    p_sup_12m <- p_sup_12m |>
+      add_bars(x = sub[["date"]], y = sub[["c12_energy_norm"]], name = "Household Energy (CP045)",
+               marker = list(color = col_sup_energy), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_fuels_norm"]], name = "Transport Fuels (CP0722)",
+               marker = list(color = col_sup_fuels), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_food_norm"]], name = "Food & Non-Alc. (CP01)",
+               marker = list(color = col_sup_food), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_other_norm"]], name = "Other Supply Pressures",
+               marker = list(color = col_sup_other), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = sub[["c12_total_supply_norm"]], name = "Total Supply Shock",
+                line = list(color = col_supply, width = 2.2, dash = "dash"), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = line_y, name = "Headline HICP (12M)",
+                line = list(color = col_line, width = 2), legendgroup = cc, visible = vis, showlegend = FALSE)
+  }
+}
+p_sup_12m <- p_sup_12m |>
+  layout(barmode = "relative", hovermode = "x unified",
+         xaxis = axis_layout, yaxis = yaxis_layout, margin = margin_layout, showlegend = FALSE) |>
+  config(responsive = TRUE, displayModeBar = FALSE)
+
+# CHART 4: Supply Drivers Monthly (MoM)
+p_sup_m <- plot_ly()
+for (cc in ordered_countries) {
+  sub <- df_s_m[df_s_m[["country"]] == cc, ]
+  sub <- sub[order(sub[["date"]]), ]
+  vis <- (cc == default_country)
+  if (nrow(sub) > 0) {
+    p_sup_m <- p_sup_m |>
+      add_bars(x = sub[["date"]], y = sub[["contr_energy_norm"]], name = "Energy (MoM)",
+               marker = list(color = col_sup_energy), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_fuels_norm"]], name = "Fuels (MoM)",
+               marker = list(color = col_sup_fuels), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_food_norm"]], name = "Food (MoM)",
+               marker = list(color = col_sup_food), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_other_norm"]], name = "Other Supply (MoM)",
+               marker = list(color = col_sup_other), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = sub[["contr_total_supply_norm"]], name = "Total Supply (MoM)",
+                line = list(color = col_supply, width = 2, dash = "dash"), legendgroup = cc, visible = vis, showlegend = FALSE)
+  }
+}
+p_sup_m <- p_sup_m |>
+  layout(barmode = "relative", hovermode = "x unified",
+         xaxis = axis_layout, yaxis = yaxis_layout, margin = margin_layout, showlegend = FALSE) |>
+  config(responsive = TRUE, displayModeBar = FALSE)
+
+# CHART 5: Demand Pillars (12M YoY)
+p_dem_12m <- plot_ly()
+for (cc in ordered_countries) {
+  sub <- df_d_12m[df_d_12m[["country"]] == cc, ]
+  sub <- sub[order(sub[["date"]]), ]
+  vis <- (cc == default_country)
+  if (nrow(sub) > 0) {
+    line_y <- if ("hicp_yoy" %in% colnames(sub)) ifelse(!is.na(sub[["hicp_yoy"]]), sub[["hicp_yoy"]], sub[["c12_total_inf_norm"]]) else sub[["c12_total_inf_norm"]]
+    p_dem_12m <- p_dem_12m |>
+      add_bars(x = sub[["date"]], y = sub[["c12_services_norm"]], name = "Services",
+               marker = list(color = col_dem_services), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_goods_norm"]], name = "Industrial Goods",
+               marker = list(color = col_dem_goods), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_food_norm"]], name = "Food & Beverages",
+               marker = list(color = col_dem_food), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["c12_energy_norm"]], name = "Energy & Fuels Demand",
+               marker = list(color = col_dem_energy), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = sub[["c12_total_demand_norm"]], name = "Total Demand Shock",
+                line = list(color = col_demand, width = 2.2, dash = "dash"), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = line_y, name = "Headline HICP (12M)",
+                line = list(color = col_line, width = 2), legendgroup = cc, visible = vis, showlegend = FALSE)
+  }
+}
+p_dem_12m <- p_dem_12m |>
+  layout(barmode = "relative", hovermode = "x unified",
+         xaxis = axis_layout, yaxis = yaxis_layout, margin = margin_layout, showlegend = FALSE) |>
+  config(responsive = TRUE, displayModeBar = FALSE)
+
+# CHART 6: Demand Pillars Monthly (MoM)
+p_dem_m <- plot_ly()
+for (cc in ordered_countries) {
+  sub <- df_d_m[df_d_m[["country"]] == cc, ]
+  sub <- sub[order(sub[["date"]]), ]
+  vis <- (cc == default_country)
+  if (nrow(sub) > 0) {
+    p_dem_m <- p_dem_m |>
+      add_bars(x = sub[["date"]], y = sub[["contr_services_norm"]], name = "Services (MoM)",
+               marker = list(color = col_dem_services), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_goods_norm"]], name = "Industrial Goods (MoM)",
+               marker = list(color = col_dem_goods), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_food_norm"]], name = "Food & Bev (MoM)",
+               marker = list(color = col_dem_food), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_bars(x = sub[["date"]], y = sub[["contr_energy_norm"]], name = "Energy Demand (MoM)",
+               marker = list(color = col_dem_energy), legendgroup = cc, visible = vis, showlegend = FALSE) |>
+      add_lines(x = sub[["date"]], y = sub[["contr_total_demand_norm"]], name = "Total Demand (MoM)",
+                line = list(color = col_demand, width = 2, dash = "dash"), legendgroup = cc, visible = vis, showlegend = FALSE)
+  }
+}
+p_dem_m <- p_dem_m |>
+  layout(barmode = "relative", hovermode = "x unified",
+         xaxis = axis_layout, yaxis = yaxis_layout, margin = margin_layout, showlegend = FALSE) |>
+  config(responsive = TRUE, displayModeBar = FALSE)
+```
+
+# {.sidebar}
+
+### Parameters
+
+```{r}
+#| echo: false
+#| results: asis
+
+options_html <- paste(sapply(ordered_countries, function(cc) {
+  lbl <- ifelse(cc %in% names(country_names), country_names[[cc]], cc)
+  sel <- ifelse(cc == default_country, ' selected="selected"', "")
+  paste0('<option value="', cc, '"', sel, '>', lbl, '</option>')
+}), collapse = "\n")
+
+cat(sprintf('
+<div class="country-select-wrapper" style="margin-bottom: 14px;">
+<label for="country-select" style="font-weight: 600; font-size: 13px; color: #374151; display: block; margin-bottom: 5px;">🌍 Country:</label>
+<select id="country-select" class="form-select country-native-select" onchange="changeCountry(this.value)" style="font-size: 14px; font-weight: 600; width: 100%%; padding: 8px 10px; border-radius: 6px; border: 1.5px solid #cbd5e1; cursor: pointer;">
+%s
+</select>
+</div>
+
+<h4 id="kpi-cname" style="font-size: 16px; font-weight: 700; color: #111827; margin: 14px 0 2px;">%s</h4>
+<div style="font-size: 12px; color: #64748b; margin-bottom: 12px;">Latest observation: <strong id="kpi-date">%s</strong></div>
+
+<div class="kpi-grid">
+<div class="kpi-card" style="border-top: 3px solid #111111;">
+<div class="kpi-lbl">Actual Inflation (12M)</div>
+<div class="kpi-val" id="kpi-inf">%s pp</div>
+</div>
+<div class="kpi-card" style="border-top: 3px solid #d6498b;">
+<div class="kpi-lbl">Supply Shock</div>
+<div class="kpi-val" style="color: #d6498b;" id="kpi-sup">%s pp</div>
+</div>
+<div class="kpi-card" style="border-top: 3px solid #41b6c4;">
+<div class="kpi-lbl">Demand Shock</div>
+<div class="kpi-val" style="color: #41b6c4;" id="kpi-dem">%s pp</div>
+</div>
+<div class="kpi-card" style="border-top: 3px solid #fec44f;">
+<div class="kpi-lbl">Ambiguous (Residual)</div>
+<div class="kpi-val" style="color: #d97706;" id="kpi-amb">%s pp</div>
+</div>
+</div>
+
+<div style="margin-top: 18px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 11.5px; line-height: 1.45; color: #475569;">
+<strong>Methodology:</strong> Inflation decomposition follows Adam Shapiro (2022, FRBSF) and European Central Bank (Gonçalves &amp; Koester, 2022). Headline inflation represents actual official Eurostat HICP rates (YoY and MoM). Supply and demand shock contributions are estimated via sign-restricted BVAR models on granular COICOP categories, and ambiguous shocks are calculated as the exact difference between the official headline index and identified shocks.
+</div>
+',
+options_html,
+kpi_data[[default_country]]$name,
+kpi_data[[default_country]]$date,
+kpi_data[[default_country]]$inf,
+kpi_data[[default_country]]$sup,
+kpi_data[[default_country]]$dem,
+kpi_data[[default_country]]$amb
+))
+```
+
+# Main Contributions {#main-contributions}
+
+## Row {height=58%}
+
+### Annual Inflation Decomposition (12M Rolling Sum, YoY)
+
+<div class="card-header-wrapper">
+<h3 class="chart-title">Annual Inflation Decomposition<br><span class="chart-subtitle">12-month rolling sum of supply and demand shocks to headline HICP; ambiguous shocks defined as residual to official Eurostat inflation (percentage points)</span></h3>
+</div>
+
+<div class="decomp-legend-container">
+<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Supply Shocks</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Demand Shocks</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #fec44f;"></span> Ambiguous Shocks (Residual)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</div>
+</div>
+
+```{r}
+p_main_12m
+```
+
+<div class="chart-export-toolbar">
+<button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
+</div>
+
+## Row {height=42%}
+
+### Monthly Shock Contributions (MoM)
+
+<div class="card-header-wrapper">
+<h3 class="chart-title">Monthly Shock Contributions<br><span class="chart-subtitle">Month-over-month supply and demand contributions to headline HICP; ambiguous shocks defined as residual to official Eurostat inflation (percentage points)</span></h3>
+</div>
+
+<div class="decomp-legend-container">
+<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Supply (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Demand (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #fec44f;"></span> Ambiguous (MoM, Residual)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (MoM)</div>
+</div>
+
+```{r}
+p_main_m
+```
+
+<div class="chart-export-toolbar">
+<button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
+</div>
+
+# Supply Shocks {#supply-shocks}
+
+## Row {height=58%}
+
+### Supply-Side Drivers (12M Rolling Sum, YoY)
+
+<div class="card-header-wrapper">
+<h3 class="chart-title">Supply Shock Drivers<br><span class="chart-subtitle">Decomposition into household energy, transport fuels, food, and other supply shocks (percentage points)</span></h3>
+</div>
+
+<div class="decomp-legend-container">
+<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Household Energy (CP045)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #9c1752;"></span> Transport Fuels (CP0722)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Non-Alcoholic (CP01)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #a0aec0;"></span> Other Supply Pressures</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #d6498b; height: 3px; border-radius: 1px;"></span> Total Supply Shock (dashed)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</div>
+</div>
+
+```{r}
+p_sup_12m
+```
+
+<div class="chart-export-toolbar">
+<button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
+</div>
+
+## Row {height=42%}
+
+### Monthly Supply Shock Dynamics (MoM)
+
+<div class="card-header-wrapper">
+<h3 class="chart-title">Monthly Supply Pressures<br><span class="chart-subtitle">Monthly contributions across energy, transport fuels, food, and other supply-side components</span></h3>
+</div>
+
+<div class="decomp-legend-container">
+<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Household Energy (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #9c1752;"></span> Transport Fuels (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #a0aec0;"></span> Other Supply (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #d6498b; height: 3px; border-radius: 1px;"></span> Total Supply (MoM)</div>
+</div>
+
+```{r}
+p_sup_m
+```
+
+<div class="chart-export-toolbar">
+<button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
+</div>
+
+# Demand Shocks {#demand-shocks}
+
+## Row {height=58%}
+
+### Demand-Side Pillars (12M Rolling Sum, YoY)
+
+<div class="card-header-wrapper">
+<h3 class="chart-title">Demand Shock Pillars<br><span class="chart-subtitle">Decomposition into services, industrial goods, food & beverages, and energy & fuels demand pressures (percentage points)</span></h3>
+</div>
+
+<div class="decomp-legend-container">
+<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Services</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #2b6cb0;"></span> Industrial Goods</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Beverages</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #805ad5;"></span> Energy & Fuels Demand</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4; height: 3px; border-radius: 1px;"></span> Total Demand Shock (dashed)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</div>
+</div>
+
+```{r}
+p_dem_12m
+```
+
+<div class="chart-export-toolbar">
+<button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
+</div>
+
+## Row {height=42%}
+
+### Monthly Demand Shock Dynamics (MoM)
+
+<div class="card-header-wrapper">
+<h3 class="chart-title">Monthly Demand Pressures<br><span class="chart-subtitle">Monthly contributions across services, industrial goods, food & beverages, and energy demand</span></h3>
+</div>
+
+<div class="decomp-legend-container">
+<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Services (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #2b6cb0;"></span> Industrial Goods (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Beverages (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #805ad5;"></span> Energy Demand (MoM)</div>
+<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4; height: 3px; border-radius: 1px;"></span> Total Demand (MoM)</div>
+</div>
+
+```{r}
+p_dem_m
+```
+
+<div class="chart-export-toolbar">
+<button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
+</div>
+
+<style>
+:root {
+  --col-pink: #d6498b;
+  --col-seledyn: #41b6c4;
+  --col-yellow: #fec44f;
+  --col-orange: #fe9929;
+  --col-line: #111111;
+  --col-bg: #f8f9fa;
+  --col-card: #ffffff;
+  --col-border: #dcdfe6;
+  --col-subtitle: #555555;
+}
+
+body {
+  background-color: var(--col-bg) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+
+.card-header-wrapper {
+  margin-bottom: 4px;
+}
+
+.chart-title {
+  font-size: 15.5px !important;
+  font-weight: 700 !important;
+  color: var(--col-line) !important;
+  margin: 0 !important;
+  line-height: 1.3 !important;
+}
+
+.chart-subtitle {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: var(--col-subtitle) !important;
+}
+
+.decomp-legend-container {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 4px 8px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+@media (min-width: 992px) {
+  .decomp-legend-container {
+    flex-wrap: nowrap; /* Display in a single line on large displays */
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    gap: 4px 16px;
+    padding: 3px 8px;
+  }
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2.5px;
+  flex-shrink: 0;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.kpi-card {
+  background: var(--col-card);
+  border: 1px solid var(--col-border);
+  border-radius: 6px;
+  padding: 8px 6px;
+  text-align: center;
+}
+
+.kpi-lbl {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.kpi-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--col-line);
+}
+
+.chart-export-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  padding-top: 4px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.btn-export-chart-csv {
+  position: static !important;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #374151;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-export-chart-csv:hover {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #9ca3af;
+}
+
+@media (max-width: 768px) {
+  .tab-content > .dashboard-page.tab-pane {
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    margin-bottom: 2.5rem !important;
+    border-bottom: 2px solid #dee2e6 !important;
+    padding-bottom: 2rem !important;
+  }
+
+  .country-native-select {
+    font-size: 16px !important;
+  }
+
+  #main-contributions::before { content: "📊 Main Contributions"; }
+  #supply-shocks::before     { content: "⚡ Supply Shock Drivers"; }
+  #demand-shocks::before     { content: "🛒 Demand Shock Drivers"; }
+
+  .dashboard-page::before {
+    display: block;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #111111;
+    background: #e9ecef;
+    padding: 8px 14px;
+    border-radius: 6px;
+    margin: 1.5rem 0 1rem 0;
+    border-left: 4px solid var(--col-yellow);
+  }
+}
+
+@media (min-width: 769px) {
+  #main-contributions.active,
+  #supply-shocks.active,
+  #demand-shocks.active {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+}
+</style>
+
+<script>
+window.KPIS = `r kpis_json`;
+
+function changeCountry(cc) {
+  // 1. Update all Plotly charts via restyle
+  document.querySelectorAll('.js-plotly-plot').forEach(function(plot) {
+    if (!plot.data) return;
+    const visIdx = [];
+    const hidIdx = [];
+    plot.data.forEach(function(t, i) {
+      if (t.legendgroup === cc) {
+        visIdx.push(i);
+      } else {
+        hidIdx.push(i);
+      }
+    });
+    if (visIdx.length > 0) {
+      Plotly.restyle(plot, { visible: true }, visIdx);
+    }
+    if (hidIdx.length > 0) {
+      Plotly.restyle(plot, { visible: false }, hidIdx);
+    }
+  });
+
+  // 2. Update KPI cards in sidebar
+  if (window.KPIS && window.KPIS[cc]) {
+    const k = window.KPIS[cc];
+    const setText = function(id, val) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    const format1d = function(val) {
+      if (val == null || val === '' || isNaN(val)) return '—';
+      return Number(val).toFixed(1) + ' pp';
+    };
+    setText('kpi-cname', k.name || cc);
+    setText('kpi-date', k.date || '—');
+    setText('kpi-inf', format1d(k.inf));
+    setText('kpi-sup', format1d(k.sup));
+    setText('kpi-dem', format1d(k.dem));
+    setText('kpi-amb', format1d(k.amb));
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const tabs = document.querySelectorAll('a[data-bs-toggle="tab"], .nav-link');
+  tabs.forEach(function(tab) {
+    tab.addEventListener('shown.bs.tab', function() {
+      window.dispatchEvent(new Event('resize'));
+    });
+  });
+
+  const sel = document.getElementById('country-select');
+  if (sel) {
+    changeCountry(sel.value);
+  }
+});
+
+function exportChartCsv(btn) {
+  const card = btn.closest('.card') || btn.closest('.bslib-card') || btn.parentElement.parentElement;
+  const plot = card.querySelector('.js-plotly-plot');
+  if (!plot || !plot.data) return;
+
+  const visibleTraces = plot.data.filter(t => t.visible === true);
+  if (visibleTraces.length === 0) return;
+
+  const dates = visibleTraces[0].x;
+  let csv = 'Period,' + visibleTraces.map(t => '\"' + t.name + '\"').join(',') + '\n';
+
+  for (let i = 0; i < dates.length; i++) {
+    const row = [dates[i]];
+    visibleTraces.forEach(t => {
+      const val = t.y[i];
+      row.push(val != null && !isNaN(val) ? Number(val).toFixed(1) : '');
+    });
+    csv += row.join(',') + '\n';
+  }
+
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const sel = document.getElementById('country-select');
+  const cc = sel ? sel.value : 'Data';
+  const titleEl = card.querySelector('.chart-title');
+  const slug = titleEl ? titleEl.childNodes[0].textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_') : 'chart';
+  a.download = cc + '_' + slug + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
