@@ -914,37 +914,65 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function exportChartCsv(btn) {
-  const card = btn.closest('.card') || btn.closest('.bslib-card') || btn.parentElement.parentElement;
-  const plot = card.querySelector('.js-plotly-plot');
-  if (!plot || !plot.data) return;
+  let container = btn.parentElement;
+  while (container && container !== document.body) {
+    if (container.querySelector('.js-plotly-plot, .plotly.html-widget')) {
+      break;
+    }
+    container = container.parentElement;
+  }
+  if (!container || container === document.body) return;
 
-  const visibleTraces = plot.data.filter(t => t.visible === true);
+  const plot = container.querySelector('.js-plotly-plot, .plotly.html-widget');
+  if (!plot) return;
+
+  const sel = document.getElementById('country-select');
+  const cc = sel ? sel.value : 'PL';
+
+  let visibleTraces = [];
+  if (plot.data && Array.isArray(plot.data)) {
+    visibleTraces = plot.data.filter(function(t) { return t.visible === true; });
+    if (visibleTraces.length === 0) {
+      visibleTraces = plot.data.filter(function(t) { return t.legendgroup === cc; });
+    }
+  } else if (plot.id) {
+    const jsonScript = container.querySelector('script[type="application/json"][data-for="' + plot.id + '"]');
+    if (jsonScript) {
+      try {
+        const payload = JSON.parse(jsonScript.textContent);
+        if (payload && payload.x && Array.isArray(payload.x.data)) {
+          visibleTraces = payload.x.data.filter(function(t) { return t.legendgroup === cc || t.visible === true; });
+        }
+      } catch (e) {}
+    }
+  }
   if (visibleTraces.length === 0) return;
 
-  const dates = visibleTraces[0].x;
-  let csv = 'Period,' + visibleTraces.map(t => '\"' + t.name + '\"').join(',') + '\n';
+  const dates = visibleTraces[0].x || [];
+  let csv = 'Country,Period,' + visibleTraces.map(function(t) {
+    return '"' + String(t.name || '').replace(/"/g, '""') + '"';
+  }).join(',') + '\r\n';
 
   for (let i = 0; i < dates.length; i++) {
-    const row = [dates[i]];
-    visibleTraces.forEach(t => {
-      const val = t.y[i];
-      row.push(val != null && !isNaN(val) ? Number(val).toFixed(1) : '');
+    const row = [cc, dates[i]];
+    visibleTraces.forEach(function(t) {
+      const val = t.y ? t.y[i] : null;
+      row.push(val != null && val !== '' && !isNaN(val) ? Number(val).toFixed(1) : '');
     });
-    csv += row.join(',') + '\n';
+    csv += row.join(',') + '\r\n';
   }
 
   const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const sel = document.getElementById('country-select');
-  const cc = sel ? sel.value : 'Data';
-  const titleEl = card.querySelector('.chart-title');
-  const slug = titleEl ? titleEl.childNodes[0].textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_') : 'chart';
-  a.download = cc + '_' + slug + '.csv';
+  const titleEl = container.querySelector('.chart-title');
+  const rawTitle = titleEl && titleEl.childNodes.length > 0 ? titleEl.childNodes[0].textContent : 'chart';
+  const slug = rawTitle.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  a.download = cc + '_' + (slug || 'chart') + '.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(function() { URL.revokeObjectURL(url); }, 100);
 }
 </script>
