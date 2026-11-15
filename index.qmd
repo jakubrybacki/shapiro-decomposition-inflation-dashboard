@@ -4,6 +4,7 @@ subtitle: "Supply and Demand Shock Contributions via Shapiro (2022) Methodology"
 format:
   dashboard:
     orientation: rows
+    scrolling: true
     theme: cosmo
 ---
 
@@ -526,7 +527,7 @@ kpi_data[[default_country]]$amb
 
 # Main Contributions {#main-contributions}
 
-## Row {height=48%}
+## Row
 
 ### Annual Inflation Decomposition (12M Rolling Sum, YoY)
 
@@ -535,10 +536,10 @@ kpi_data[[default_country]]$amb
 </div>
 
 <div class="decomp-legend-container">
-<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Supply Shocks</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Demand Shocks</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #fec44f;"></span> Ambiguous Shocks (Residual)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</div>
+<span class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Supply Shocks</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Demand Shocks</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #fec44f;"></span> Ambiguous Shocks (Residual)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</span>
 </div>
 
 ```{r}
@@ -549,7 +550,7 @@ p_main_12m
 <button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
 </div>
 
-## Row {height=52%}
+## Row
 
 ### Monthly Shock Contributions (MoM)
 
@@ -558,10 +559,10 @@ p_main_12m
 </div>
 
 <div class="decomp-legend-container">
-<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Supply (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Demand (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #fec44f;"></span> Ambiguous (MoM, Residual)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (MoM)</div>
+<span class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Supply (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Demand (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #fec44f;"></span> Ambiguous (MoM, Residual)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (MoM)</span>
 </div>
 
 ```{r}
@@ -574,7 +575,7 @@ p_main_m
 
 # Supply Shocks {#supply-shocks}
 
-## Row {height=48%}
+## Row
 
 ### Supply-Side Drivers (12M Rolling Sum, YoY)
 
@@ -583,12 +584,12 @@ p_main_m
 </div>
 
 <div class="decomp-legend-container">
-<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Household Energy (CP045)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #9c1752;"></span> Transport Fuels (CP0722)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Non-Alcoholic (CP01)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #a0aec0;"></span> Other Supply Pressures</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #d6498b; height: 3px; border-radius: 1px;"></span> Total Supply Shock (dashed)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</div>
+<span class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Household Energy (CP045)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #9c1752;"></span> Transport Fuels (CP0722)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Non-Alcoholic (CP01)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #a0aec0;"></span> Other Supply Pressures</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #d6498b; height: 3px; border-radius: 1px;"></span> Total Supply Shock (dashed)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</span>
 </div>
 
 ```{r}
@@ -599,7 +600,7 @@ p_sup_12m
 <button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
 </div>
 
-## Row {height=52%}
+## Row
 
 ### Monthly Supply Shock Dynamics (MoM)
 
@@ -608,11 +609,11 @@ p_sup_12m
 </div>
 
 <div class="decomp-legend-container">
-<div class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Household Energy (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #9c1752;"></span> Transport Fuels (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #a0aec0;"></span> Other Supply (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #d6498b; height: 3px; border-radius: 1px;"></span> Total Supply (MoM)</div>
+<span class="legend-item"><span class="legend-swatch" style="background: #d6498b;"></span> Household Energy (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #9c1752;"></span> Transport Fuels (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #a0aec0;"></span> Other Supply (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #d6498b; height: 3px; border-radius: 1px;"></span> Total Supply (MoM)</span>
 </div>
 
 ```{r}
@@ -625,7 +626,7 @@ p_sup_m
 
 # Demand Shocks {#demand-shocks}
 
-## Row {height=48%}
+## Row
 
 ### Demand-Side Pillars (12M Rolling Sum, YoY)
 
@@ -634,12 +635,12 @@ p_sup_m
 </div>
 
 <div class="decomp-legend-container">
-<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Services</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #2b6cb0;"></span> Industrial Goods</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Beverages</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #805ad5;"></span> Energy & Fuels Demand</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4; height: 3px; border-radius: 1px;"></span> Total Demand Shock (dashed)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</div>
+<span class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Services</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #2b6cb0;"></span> Industrial Goods</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Beverages</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #805ad5;"></span> Energy & Fuels Demand</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #41b6c4; height: 3px; border-radius: 1px;"></span> Total Demand Shock (dashed)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #111111; height: 3px; border-radius: 1px;"></span> Actual Headline HICP (12M)</span>
 </div>
 
 ```{r}
@@ -650,7 +651,7 @@ p_dem_12m
 <button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
 </div>
 
-## Row {height=52%}
+## Row
 
 ### Monthly Demand Shock Dynamics (MoM)
 
@@ -659,11 +660,11 @@ p_dem_12m
 </div>
 
 <div class="decomp-legend-container">
-<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Services (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #2b6cb0;"></span> Industrial Goods (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Beverages (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #805ad5;"></span> Energy Demand (MoM)</div>
-<div class="legend-item"><span class="legend-swatch" style="background: #41b6c4; height: 3px; border-radius: 1px;"></span> Total Demand (MoM)</div>
+<span class="legend-item"><span class="legend-swatch" style="background: #41b6c4;"></span> Services (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #2b6cb0;"></span> Industrial Goods (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #fe9929;"></span> Food & Beverages (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #805ad5;"></span> Energy Demand (MoM)</span>
+<span class="legend-item"><span class="legend-swatch" style="background: #41b6c4; height: 3px; border-radius: 1px;"></span> Total Demand (MoM)</span>
 </div>
 
 ```{r}
@@ -711,46 +712,58 @@ body {
 }
 
 .decomp-legend-container {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 4px 8px;
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  margin-bottom: 4px;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px 14px !important;
+  padding: 6px 10px !important;
+  background-color: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 6px !important;
+  margin-bottom: 6px !important;
+  width: 100% !important;
+  min-height: auto !important;
+  min-width: 0 !important;
+  overflow: visible !important;
 }
 
-@media (min-width: 992px) {
-  .decomp-legend-container {
-    flex-wrap: nowrap; /* Display in a single line on large displays */
-    white-space: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    gap: 4px 16px;
-    padding: 3px 8px;
-  }
+.decomp-legend-container p {
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px 14px !important;
+  width: 100% !important;
 }
 
-.legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 500;
-  color: #374151;
-  white-space: nowrap;
-  flex-shrink: 0;
+.legend-item,
+.decomp-legend-container .legend-item,
+.decomp-legend-container > .legend-item {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  color: #374151 !important;
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+  min-width: fit-content !important;
+  min-height: auto !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 .legend-swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 2.5px;
-  flex-shrink: 0;
+  display: inline-block !important;
+  width: 13px !important;
+  height: 12px !important;
+  border-radius: 2.5px !important;
+  flex-shrink: 0 !important;
 }
 
 .kpi-grid {
@@ -845,32 +858,50 @@ body {
   }
 }
 
+/* Generous 2.5x chart height allowing full complete display of time series */
+.dashboard-page .plotly.html-widget,
+.dashboard-page .js-plotly-plot {
+  min-height: 650px !important;
+  height: 650px !important;
+}
+
+/* Eliminate internal scrollbars on cards, cell outputs, and chart wrappers */
+.card,
+.card-body,
+.cell,
+.cell-output-display,
+.bslib-card,
+.html-fill-container,
+.html-fill-item {
+  overflow: visible !important;
+}
+
 @media (min-width: 769px) {
   #main-contributions.active,
   #supply-shocks.active,
   #demand-shocks.active {
+    display: block !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    height: auto !important;
+    min-height: calc(100vh - 60px) !important;
+    padding-bottom: 3rem !important;
+  }
+
+  .dashboard-page > .bslib-grid {
     display: flex !important;
     flex-direction: column !important;
-    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100% !important;
+    gap: 24px !important;
   }
 
-  /* Enforce robust height and min-height for lower rows & charts */
-  .dashboard-page > .bslib-grid > div:nth-child(2) {
-    min-height: 380px !important;
-  }
-
-  .dashboard-page > .bslib-grid > div:nth-child(2) .plotly.html-widget,
-  .dashboard-page > .bslib-grid > div:nth-child(2) .js-plotly-plot {
-    min-height: 270px !important;
-  }
-
-  .dashboard-page > .bslib-grid > div:nth-child(1) {
-    min-height: 340px !important;
-  }
-
-  .dashboard-page > .bslib-grid > div:nth-child(1) .plotly.html-widget,
-  .dashboard-page > .bslib-grid > div:nth-child(1) .js-plotly-plot {
-    min-height: 240px !important;
+  .dashboard-page > .bslib-grid > div {
+    display: block !important;
+    height: auto !important;
+    min-height: auto !important;
+    width: 100% !important;
+    flex: 0 0 auto !important;
   }
 }
 </style>
@@ -931,6 +962,10 @@ document.addEventListener('DOMContentLoaded', function() {
   if (sel) {
     changeCountry(sel.value);
   }
+
+  setTimeout(function() {
+    window.dispatchEvent(new Event('resize'));
+  }, 250);
 });
 
 function exportChartCsv(btn) {
