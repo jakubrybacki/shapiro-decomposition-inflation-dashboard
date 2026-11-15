@@ -139,10 +139,10 @@ if (!bq_loaded) {
     stop("Data file not found: ", rel_file)
   }
 
-  data_c_path <- find_path("model_shock_contrubutions/all_countries_contributions.xlsx")
-  data_s_path <- find_path("model_shock_contrubutions/all_countries_supply_drivers.xlsx")
-  data_d_path <- find_path("model_shock_contrubutions/all_countries_demand_drivers.xlsx")
-  hicp_path   <- find_path("model_shock_contrubutions/headline_hicp_all_countries.rds")
+  data_c_path <- find_path("model/model_shock_contrubutions/all_countries_contributions.xlsx")
+  data_s_path <- find_path("model/model_shock_contrubutions/all_countries_supply_drivers.xlsx")
+  data_d_path <- find_path("model/model_shock_contrubutions/all_countries_demand_drivers.xlsx")
+  hicp_path   <- find_path("model/model_shock_contrubutions/headline_hicp_all_countries.rds")
 
   hicp_all <- readRDS(hicp_path)
 
@@ -526,7 +526,7 @@ kpi_data[[default_country]]$amb
 
 # Main Contributions {#main-contributions}
 
-## Row {height=58%}
+## Row {height=48%}
 
 ### Annual Inflation Decomposition (12M Rolling Sum, YoY)
 
@@ -549,7 +549,7 @@ p_main_12m
 <button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
 </div>
 
-## Row {height=42%}
+## Row {height=52%}
 
 ### Monthly Shock Contributions (MoM)
 
@@ -574,7 +574,7 @@ p_main_m
 
 # Supply Shocks {#supply-shocks}
 
-## Row {height=58%}
+## Row {height=48%}
 
 ### Supply-Side Drivers (12M Rolling Sum, YoY)
 
@@ -599,7 +599,7 @@ p_sup_12m
 <button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
 </div>
 
-## Row {height=42%}
+## Row {height=52%}
 
 ### Monthly Supply Shock Dynamics (MoM)
 
@@ -625,7 +625,7 @@ p_sup_m
 
 # Demand Shocks {#demand-shocks}
 
-## Row {height=58%}
+## Row {height=48%}
 
 ### Demand-Side Pillars (12M Rolling Sum, YoY)
 
@@ -650,7 +650,7 @@ p_dem_12m
 <button class="btn-export-chart-csv" onclick="exportChartCsv(this)" title="Download chart data as CSV">📥 CSV</button>
 </div>
 
-## Row {height=42%}
+## Row {height=52%}
 
 ### Monthly Demand Shock Dynamics (MoM)
 
@@ -851,6 +851,26 @@ body {
   #demand-shocks.active {
     display: flex !important;
     flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+
+  /* Enforce robust height and min-height for lower rows & charts */
+  .dashboard-page > .bslib-grid > div:nth-child(2) {
+    min-height: 380px !important;
+  }
+
+  .dashboard-page > .bslib-grid > div:nth-child(2) .plotly.html-widget,
+  .dashboard-page > .bslib-grid > div:nth-child(2) .js-plotly-plot {
+    min-height: 270px !important;
+  }
+
+  .dashboard-page > .bslib-grid > div:nth-child(1) {
+    min-height: 340px !important;
+  }
+
+  .dashboard-page > .bslib-grid > div:nth-child(1) .plotly.html-widget,
+  .dashboard-page > .bslib-grid > div:nth-child(1) .js-plotly-plot {
+    min-height: 240px !important;
   }
 }
 </style>
